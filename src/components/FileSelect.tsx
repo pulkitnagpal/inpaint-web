@@ -3,10 +3,11 @@ import * as m from '../paraglide/messages'
 
 type FileSelectProps = {
   onSelection: (file: File) => void
+  accept?: string
 }
 
 export default function FileSelect(props: FileSelectProps) {
-  const { onSelection } = props
+  const { onSelection, accept = 'image/png, image/jpeg, image/webp' } = props
 
   const [dragHover, setDragHover] = useState(false)
   const [uploadElemId] = useState(`file-upload-${Math.random().toString()}`)
@@ -15,14 +16,19 @@ export default function FileSelect(props: FileSelectProps) {
     if (!file) {
       return
     }
-    // Skip non-image files
-    const isImage = file.type.match('image.*')
-    if (!isImage) {
+
+    // Validate file type based on accept prop
+    const isVideo = accept.includes('video/*') && file.type.match('video.*')
+    const isImage = accept.includes('image/') && file.type.match('image.*')
+
+    if (!isImage && !isVideo) {
       return
     }
+
     try {
-      // Check if file is larger than 10mb
-      if (file.size > 10 * 1024 * 1024) {
+      // Check if file is larger than 100mb for videos, 10mb for images
+      const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024
+      if (file.size > maxSize) {
         throw new Error('file too large')
       }
       onSelection(file)
@@ -126,7 +132,7 @@ export default function FileSelect(props: FileSelectProps) {
               onFileSelected(file)
             }
           }}
-          accept="image/png, image/jpeg, image/webp"
+          accept={accept}
         />
         <p>{m.drop_zone()}</p>
       </div>

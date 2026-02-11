@@ -5,6 +5,7 @@ interface ButtonProps {
   className?: string
   icon?: ReactNode
   primary?: boolean
+  disabled?: boolean
   style?: {
     [key: string]: string
   }
@@ -21,6 +22,7 @@ export default function Button(props: ButtonProps) {
     className,
     icon,
     primary,
+    disabled,
     style,
     onClick,
     onDown,
@@ -30,39 +32,46 @@ export default function Button(props: ButtonProps) {
   } = props
   const [active, setActive] = useState(false)
   let background = ''
-  if (primary) {
+  if (disabled) {
+    background = 'bg-gray-300 text-gray-500 cursor-not-allowed'
+  } else if (primary) {
     background = 'bg-primary hover:bg-black hover:text-white'
-  }
-  if (active) {
+  } else if (active) {
     background = 'bg-black text-white'
-  }
-  if (!primary && !active) {
+  } else {
     background = 'hover:bg-primary'
   }
   return (
     <div
       role="button"
       onKeyDown={() => {
-        onDown?.()
+        if (!disabled) onDown?.()
       }}
-      onClick={onClick}
+      onClick={() => {
+        if (!disabled) onClick?.()
+      }}
       onPointerDown={() => {
-        setActive(true)
-        onDown?.()
+        if (!disabled) {
+          setActive(true)
+          onDown?.()
+        }
       }}
       onPointerUp={() => {
-        setActive(false)
-        onUp?.()
+        if (!disabled) {
+          setActive(false)
+          onUp?.()
+        }
       }}
       onPointerEnter={() => {
-        onEnter?.()
+        if (!disabled) onEnter?.()
       }}
       onPointerLeave={() => {
-        onLeave?.()
+        if (!disabled) onLeave?.()
       }}
-      tabIndex={-1}
+      tabIndex={disabled ? -1 : -1}
       className={[
-        'inline-flex space-x-3 py-3 px-5 rounded-md cursor-pointer',
+        'inline-flex space-x-3 py-3 px-5 rounded-md',
+        disabled ? 'cursor-not-allowed' : 'cursor-pointer',
         background,
         className,
       ].join(' ')}

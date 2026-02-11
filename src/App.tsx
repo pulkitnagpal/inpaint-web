@@ -7,21 +7,16 @@ import Button from './components/Button'
 import FileSelect from './components/FileSelect'
 import Modal from './components/Modal'
 import Editor from './Editor'
+import VideoEditor from './VideoEditor'
 import { resizeImageFile } from './utils'
 import Progress from './components/Progress'
 import { downloadModel } from './adapters/cache'
 import * as m from './paraglide/messages'
-import {
-  languageTag,
-  onSetLanguageTag,
-  setLanguageTag,
-} from './paraglide/runtime'
+import { languageTag, setLanguageTag } from './paraglide/runtime'
 
 function App() {
   const [file, setFile] = useState<File>()
-  const [stateLanguageTag, setStateLanguageTag] = useState<'en' | 'zh'>('zh')
-
-  onSetLanguageTag(() => setStateLanguageTag(languageTag()))
+  const [videoFile, setVideoFile] = useState<File>()
 
   const [showAbout, setShowAbout] = useState(false)
   const modalRef = useRef(null)
@@ -46,12 +41,13 @@ function App() {
       <header className="z-10 shadow flex flex-row items-center md:justify-between h-14">
         <Button
           className={[
-            file ? '' : 'opacity-50 pointer-events-none',
+            file || videoFile ? '' : 'opacity-50 pointer-events-none',
             'pl-1 pr-1 mx-1 sm:mx-5',
           ].join(' ')}
           icon={<ArrowLeftIcon className="w-6 h-6" />}
           onClick={() => {
             setFile(undefined)
+            setVideoFile(undefined)
           }}
         >
           <div className="md:w-[290px]">
@@ -98,23 +94,61 @@ function App() {
           <Editor file={file} />
         ) : (
           <>
-            <div className="flex h-full flex-1 flex-col items-center justify-center overflow-hidden">
-              <div className="h-72 sm:w-1/2 max-w-5xl">
-                <FileSelect
-                  onSelection={async f => {
-                    const { file: resizedFile } = await resizeImageFile(
-                      f,
-                      1024 * 4
-                    )
-                    setFile(resizedFile)
-                  }}
-                />
-              </div>
-              <div className="flex flex-col sm:flex-row pt-10 items-center justify-center cursor-pointer">
-                <span className="text-gray-500">{m.try_it_images()}</span>
-                <div className="flex space-x-2 sm:space-x-4 px-4">
-                  {['bag', 'dog', 'car', 'bird', 'jacket', 'shoe', 'paris'].map(
-                    image => (
+            {videoFile ? (
+              <VideoEditor videoFile={videoFile} />
+            ) : (
+              <div className="flex h-full flex-1 flex-col items-center justify-center overflow-hidden">
+                <div className="space-y-8 w-full max-w-5xl px-4">
+                  {/* Image Upload */}
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4 text-center">
+                      Upload Image
+                    </h2>
+                    <div className="h-72">
+                      <FileSelect
+                        onSelection={async f => {
+                          const { file: resizedFile } = await resizeImageFile(
+                            f,
+                            1024 * 4
+                          )
+                          setFile(resizedFile)
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Video Upload */}
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4 text-center">
+                      Upload Video
+                    </h2>
+                    <div className="h-72">
+                      <FileSelect
+                        onSelection={f => {
+                          if (f.type.startsWith('video/')) {
+                            setVideoFile(f)
+                          } else {
+                            alert('Please select a video file')
+                          }
+                        }}
+                        accept="video/*"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row pt-10 items-center justify-center cursor-pointer">
+                  <span className="text-gray-500">{m.try_it_images()}</span>
+                  <div className="flex space-x-2 sm:space-x-4 px-4">
+                    {[
+                      'bag',
+                      'dog',
+                      'car',
+                      'bird',
+                      'jacket',
+                      'shoe',
+                      'paris',
+                    ].map(image => (
                       <div
                         key={image}
                         onClick={() => startWithDemoImage(image)}
@@ -129,11 +163,11 @@ function App() {
                           style={{ height: '100px' }}
                         />
                       </div>
-                    )
-                  )}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </main>
