@@ -14,6 +14,12 @@ import {
   processFrames,
   combineFramesToVideo,
 } from './adapters/videoProcessing'
+import {
+  getBoundingBoxFromMask,
+  createMaskFromBBox,
+  SimpleObjectTracker,
+} from './adapters/objectTracking'
+import { FarnebackMaskTracker } from './adapters/farnebackTracking'
 
 interface VideoEditorProps {
   videoFile: File
@@ -216,17 +222,17 @@ export default function VideoEditor(props: VideoEditorProps) {
     setIsDrawing(false)
   }, [])
 
-  const processVideo = useCallback(async () => {
+  const processVideoWithOpenCV = useCallback(async () => {
     if (!firstFrame) return
 
-    console.log('[VideoEditor] Starting video processing workflow...')
+    console.log('[VideoEditor] Starting OpenCV-based video processing...')
     const workflowStartTime = performance.now()
 
     setIsProcessing(true)
     setProgress(0)
 
     try {
-      // Get mask
+      // Get mask and extract bounding box
       console.log('[VideoEditor] Step 1: Generating mask from drawn lines')
       refreshCanvasMask()
       const maskDataUrl = maskCanvas.toDataURL()
@@ -235,6 +241,14 @@ export default function VideoEditor(props: VideoEditorProps) {
         maskDataUrl.length,
         'chars'
       )
+
+      // Extract bounding box from mask
+      console.log('[VideoEditor] Step 1a: Extracting bounding box from mask')
+      const bbox = getBoundingBoxFromMask(maskCanvas)
+      if (!bbox) {
+        throw new Error('Could not extract bounding box from mask')
+      }
+      console.log('[VideoEditor] Bounding box:', bbox)
 
       // Load video and extract frames
       console.log('[VideoEditor] Step 2: Loading video metadata')
@@ -249,13 +263,44 @@ export default function VideoEditor(props: VideoEditorProps) {
       const frames = await extractFrames(video, fps, setProgress)
       console.log('[VideoEditor] Extracted', frames.length, 'frames')
 
-      // Process each frame with inpainting
-      console.log('[VideoEditor] Step 4: Processing frames with inpainting')
+      // Initialize OpenCV object tracker
+      console.log('[VideoEditor] Step 4: Initializing OpenCV tracker')
+      const tracker = new SimpleObjectTracker()
+      tracker.initialize(frames[0], bbox)
+
+      // Process each frame with tracking and inpainting
+      console.log(
+        '[VideoEditor] Step 5: Processing frames with OpenCV tracking and inpainting'
+      )
       const processedFrameUrls = await processFrames(
         frames,
-        async frame => inpaint(frame, maskDataUrl),
+        async (frame, index) => {
+          // Track object in current frame
+          let currentBBox = bbox
+          if (index > 0) {
+            const trackedBBox = tracker.track(frame)
+            if (trackedBBox) {
+              currentBBox = trackedBBox
+            }
+          }
+
+          // Generate mask for current frame based on tracked position
+          const frameMaskCanvas = createMaskFromBBox(
+            frame.width,
+            frame.height,
+            currentBBox
+          )
+          const frameMaskDataUrl = frameMaskCanvas.toDataURL()
+
+          // Apply inpainting with tracked mask
+          return inpaint(frame, frameMaskDataUrl)
+        },
         setProgress
       )
+
+      // Cleanup tracker
+      tracker.cleanup()
+
       console.log(
         '[VideoEditor] Processed',
         processedFrameUrls.length,
@@ -263,7 +308,7 @@ export default function VideoEditor(props: VideoEditorProps) {
       )
 
       // Combine frames back into video
-      console.log('[VideoEditor] Step 5: Combining frames to video')
+      console.log('[VideoEditor] Step 6: Combining frames to video')
       const videoBlob = await combineFramesToVideo(processedFrameUrls, fps)
       setProcessedVideoBlob(videoBlob)
 
@@ -271,7 +316,7 @@ export default function VideoEditor(props: VideoEditorProps) {
         (performance.now() - workflowStartTime) /
         1000
       ).toFixed(2)
-      console.log('[VideoEditor] ✅ Video processing complete!', {
+      console.log('[VideoEditor] ✅ OpenCV video processing complete!', {
         totalTime: `${totalTime}s`,
         outputSize: `${(videoBlob.size / (1024 * 1024)).toFixed(2)} MB`,
       })
@@ -288,6 +333,106 @@ export default function VideoEditor(props: VideoEditorProps) {
       )
       // eslint-disable-next-line no-alert
       alert('Error processing video. Please try again.')
+    } finally {
+      setIsProcessing(false)
+      setProgress(0)
+    }
+  }, [firstFrame, videoFile, maskCanvas, refreshCanvasMask])
+
+  const processVideoWithFarneback = useCallback(async () => {
+    if (!firstFrame) return
+
+    console.log('[VideoEditor] Starting Farneback optical flow video processing...')
+    const workflowStartTime = performance.now()
+
+    setIsProcessing(true)
+    setProgress(0)
+
+    try {
+      // Get mask
+      console.log('[VideoEditor] Step 1: Generating mask from drawn lines')
+      refreshCanvasMask()
+      console.log('[VideoEditor] Mask generated')
+
+      // Load video and extract frames
+      console.log('[VideoEditor] Step 2: Loading video metadata')
+      const video = document.createElement('video')
+      video.src = URL.createObjectURL(videoFile)
+      await new Promise(resolve => {
+        video.onloadedmetadata = resolve
+      })
+
+      const fps = 30
+      console.log('[VideoEditor] Step 3: Extracting frames at', fps, 'fps')
+      const frames = await extractFrames(video, fps, setProgress)
+      console.log('[VideoEditor] Extracted', frames.length, 'frames')
+
+      // Initialize Farneback tracker
+      console.log('[VideoEditor] Step 4: Initializing Farneback optical flow tracker')
+      const tracker = new FarnebackMaskTracker()
+      await tracker.initialize()
+      tracker.setReference(frames[0], maskCanvas)
+
+      // Process each frame with Farneback tracking and inpainting
+      console.log(
+        '[VideoEditor] Step 5: Processing frames with Farneback optical flow and inpainting'
+      )
+      const processedFrameUrls = await processFrames(
+        frames,
+        async (frame, index) => {
+          let frameMaskCanvas: HTMLCanvasElement
+
+          if (index === 0) {
+            // Use original mask for first frame
+            frameMaskCanvas = maskCanvas
+          } else {
+            // Track mask using Farneback optical flow
+            frameMaskCanvas = await tracker.track(frame)
+          }
+
+          const frameMaskDataUrl = frameMaskCanvas.toDataURL()
+
+          // Apply inpainting with tracked mask
+          return inpaint(frame, frameMaskDataUrl)
+        },
+        setProgress
+      )
+
+      // Cleanup tracker
+      tracker.cleanup()
+
+      console.log(
+        '[VideoEditor] Processed',
+        processedFrameUrls.length,
+        'frames'
+      )
+
+      // Combine frames back into video
+      console.log('[VideoEditor] Step 6: Combining frames to video')
+      const videoBlob = await combineFramesToVideo(processedFrameUrls, fps)
+      setProcessedVideoBlob(videoBlob)
+
+      const totalTime = (
+        (performance.now() - workflowStartTime) /
+        1000
+      ).toFixed(2)
+      console.log('[VideoEditor] ✅ Farneback optical flow video processing complete!', {
+        totalTime: `${totalTime}s`,
+        outputSize: `${(videoBlob.size / (1024 * 1024)).toFixed(2)} MB`,
+      })
+    } catch (error) {
+      const elapsed = ((performance.now() - workflowStartTime) / 1000).toFixed(
+        2
+      )
+      // eslint-disable-next-line no-console
+      console.error(
+        '[VideoEditor] ❌ Error processing video after',
+        elapsed,
+        's:',
+        error
+      )
+      // eslint-disable-next-line no-alert
+      alert('Error processing video with Farneback. Please try again.')
     } finally {
       setIsProcessing(false)
       setProgress(0)
@@ -339,10 +484,17 @@ export default function VideoEditor(props: VideoEditorProps) {
           </Button>
           <Button
             icon={<PlayIcon className="w-5 h-5" />}
-            onClick={processVideo}
+            onClick={processVideoWithOpenCV}
             disabled={isProcessing || lines.length === 0}
           >
-            Process Video
+            Process Video (OpenCV)
+          </Button>
+          <Button
+            icon={<PlayIcon className="w-5 h-5" />}
+            onClick={processVideoWithFarneback}
+            disabled={isProcessing || lines.length === 0}
+          >
+            Process Video (Farneback)
           </Button>
           {processedVideoBlob && (
             <Button

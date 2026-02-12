@@ -1,6 +1,6 @@
 import localforage from 'localforage'
 
-export type modelType = 'inpaint' | 'superResolution'
+export type modelType = 'inpaint' | 'superResolution' | 'raft'
 
 localforage.config({
   name: 'modelCache',
@@ -40,6 +40,17 @@ function getModel(modelType: modelType) {
         url: 'https://huggingface.co/lxfater/inpaint-web/resolve/main/realesrgan-x4.onnx',
         backupUrl:
           'https://worker-share-proxy-01f5.lxfater.workers.dev/lxfater/inpaint-web/resolve/main/realesrgan-x4.onnx',
+      },
+    ]
+    const currentModel = modelList[0]
+    return currentModel
+  }
+  if (modelType === 'raft') {
+    const modelList = [
+      {
+        name: 'raft-optical-flow',
+        url: 'https://huggingface.co/opencv/optical_flow_estimation_raft/resolve/main/optical_flow_estimation_raft_2023aug_int8bq.onnx',
+        backupUrl: '',
       },
     ]
     const currentModel = modelList[0]

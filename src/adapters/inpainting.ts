@@ -150,7 +150,7 @@ function imageDataToDataURL(imageData) {
 
 function configEnv(capabilities) {
   ort.env.wasm.wasmPaths =
-    'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/'
+    'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/'
   if (capabilities.webgpu) {
     ort.env.wasm.numThreads = 1
   } else {
@@ -203,9 +203,30 @@ export default async function inpaint(
     const capabilities = await getCapabilities()
     configEnv(capabilities)
     const modelBuffer = await ensureModel('inpaint')
-    model = await ort.InferenceSession.create(modelBuffer, {
-      executionProviders: [capabilities.webgpu ? 'webgpu' : 'wasm'],
-    })
+    
+    // Try multiple execution providers with fallback
+    const providersToTry = capabilities.webgpu 
+      ? ['webgpu', 'wasm'] 
+      : ['wasm']
+    
+    let lastError = null
+    for (const provider of providersToTry) {
+      try {
+        console.log(`[Inpainting] Trying execution provider: ${provider}`)
+        model = await ort.InferenceSession.create(modelBuffer, {
+          executionProviders: [provider],
+        })
+        console.log(`[Inpainting] Successfully created session with ${provider}`)
+        break
+      } catch (err) {
+        console.warn(`[Inpainting] Failed with ${provider}:`, err)
+        lastError = err
+      }
+    }
+    
+    if (!model) {
+      throw new Error(`Failed to create inpainting session. Last error: ${lastError?.message}`)
+    }
   }
   console.timeEnd('sessionCreate')
   console.time('preProcess')
